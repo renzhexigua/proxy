@@ -7,6 +7,7 @@ Created on Sat Dec 19 18:05:55 2015
 import requests
 import bs4
 import time
+import pickle
 from functools import wraps
 from multiprocessing import Pool
 
@@ -17,8 +18,10 @@ OUTHA = "outha"
 OUTTR = "outtr"
 
 proxies = {
-    "http": "171.38.75.176:8123",
+    "http": "182.18.19.222:3128",
 }
+
+slaves = []
 
 def run():
     getIps(INHA)
@@ -88,6 +91,10 @@ def fetch(args):
 #             port = item.text.split('\n')[2]
 #             print(ip+":"+port, file=fout)
 
+
+def loadSlave():
+    with open("slave.pk", mode="rb") as f:
+        slaves.extend(pickle.load(f))
 
 if __name__ == "__main__":
     print("start")
