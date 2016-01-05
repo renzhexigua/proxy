@@ -8,23 +8,24 @@ import requests
 import bs4
 import time
 import pickle
+import socket
+import re
 from functools import wraps
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager, freeze_support, Process, current_process
 
-urlPrefix = "http://www.kuaidaili.com/free/"
-INHA = "inha"
-INTR = "intr"
-OUTHA = "outha"
-OUTTR = "outtr"
+# urlPrefix = "http://www.kuaidaili.com/free/"
+urlPrefix = r"http://www.mayidaili.com/free/anonymous/高匿/"
+# INHA = "inha"
+# INTR = "intr"
+# OUTHA = "outha"
+# OUTTR = "outtr"
 
 proxies = {
-    "http": "182.18.19.222:3128",
+    "https": "182.18.19.222:3128",
 }
 
-slaves = []
-
 def run():
-    getIps(INHA)
+    getIps()
     # getIps(INTR)
     # getIps(OUTHA)
     # getIps(OUTTR)
@@ -44,38 +45,61 @@ def fn_timer(function):
 
 
 @fn_timer
-def getIps(category=INHA):
-    print("get total")
-    pageTotal = getPageSum(category)
-    print("total is", pageTotal)
+# def getIps(category=INHA):
+def getIps():
+    # pageTotal = getPageSum()
+    # print("total is", pageTotal)
+    pageTotal = 20
     pageIds = [i for i in range(1, pageTotal+1)]
-    print("len of is", len(pageIds))
-    pool = Pool(1)
-    print("before pool")
-    result = pool.map(fetch, [(category, page) for page in pageIds])
-    # fetchData(category, pageTotal)
-    print(category, "has", pageTotal, "pages")
+    # print("len of is", len(pageIds))
+    pool = Pool()
+    pool.map(fetch, [(page, slaves) for page in pageIds])
+    pool.close()
+    pool.join()
+
+    tmpList = [i for i in slaves]
+    with open("slave.pk", mode="wb") as fslave:
+        pickle.dump(tmpList, fslave)
 
 
-def getPageSum(category=INHA):
-    resp = requests.get(urlPrefix+category, proxies=proxies)
-    sp = bs4.BeautifulSoup(resp.text)
-    return int(sp.select("html body div#container div div#list div#listnav ul li")[-2].text)
+# def getPageSum(category=INHA):
+def getPageSum():
+    resp = requests.get(urlPrefix, proxies=None)
+    sp = bs4.BeautifulSoup(resp.text, "html.parser")
+    # return int(sp.select("html body div#container div div#list div#listnav ul li")[-2].text)
+    return int(sp.select("a")[-3].text)
 
 
 def fetch(args):
-    print("enter fetch")
-    def fetchData(category, page):
-        print("enter fetchData")
-        print(category, page)
+    def getValidPort(content):
+        styles = {}
+        pattern = r'\w*{display:\w*}'
+        for style in re.findall(pattern, str(content)):
+            items = re.findall(r'\w{1,}', style)
+            styles[items[0]] = 0 if items[-1] == 'none' else 1
+        for port in content.select("span"):
+            className = port.attrs['class'][0]
+            if styles[className]:
+                return port.text
+
+    def fetchData(page, slaves):
         with open("ip.txt", mode="a") as fout:
-            resp = requests.get(urlPrefix+category+"/"+str(page), proxies=proxies)
-            sp = bs4.BeautifulSoup(resp.text)
-            ips = sp.select("html body div#container div div#list table.table.table-bordered.table-striped tbody tr")
-            for item in ips:
-                ip = item.text.split('\n')[1]
-                port = item.text.split('\n')[2]
-                print(ip+":"+port, file=fout)
+            resp = requests.get(urlPrefix+"/"+str(page), proxies=None)
+            sp = bs4.BeautifulSoup(resp.text, "html.parser")
+            # ips = sp.select("html body div#container div div#list table.table.table-bordered.table-striped tbody tr")
+            ips = sp.select("tbody tr")
+            for ct in ips:
+                ip = ct.select("td")[0].text
+                port = getValidPort(ct.select("td")[1])
+                slaves.append(ip+":"+port)
+                # print(ip, port)
+                # print(ip+":"+port, file=fout)
+
+            # for item in ips:
+            #     ip = item.text.split('\n')[1]
+            #     port = item.text.split('\n')[2]
+            #     slaves.append(ip+":"+port)
+
     fetchData(*args)
 
 #
@@ -92,10 +116,30 @@ def fetch(args):
 #             print(ip+":"+port, file=fout)
 
 
-def loadSlave():
+def loadSlave(slaves, validslaves):
+    print("Load slaves proxies...")
     with open("slave.pk", mode="rb") as f:
         slaves.extend(pickle.load(f))
+    for s in slaves:
+        try:
+            proxies = {"https": s}
+            requests.get("http://www.baidu.com", timeout=1.5, proxies=proxies)
+            validslaves.put(s)
+            print("Valid:->", s)
+        except socket.error or requests.exceptions.Timeout:
+            print("invalid:->", s)
+            pass
+    # print("List:", len(slaves))
+    # print("Queue:", validslaves.qsize())
+
 
 if __name__ == "__main__":
-    print("start")
+    print(getPageSum())
+    slaves = Manager().list()
+    validslaves = Manager().Queue()
+    # slaveProcess = Process(target=loadSlave, args=(slaves, validslaves, ))
+    # slaveProcess.start()
+    # slaveProcess.join()
+    # print("Finish loading slaves")
+
     run()
